@@ -1,0 +1,53 @@
+name: Check CCL on macOS ARM64
+
+on:
+  push:
+    branches:
+      - ccl-darwin-check
+    paths:
+      - .github/workflows/ccl-darwin-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CCL_SOURCE: github:tani/nixpkgs/13ac47fdfdfe56ce50f41f9e6076a06f9237148f
+
+jobs:
+  check:
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Verify runner architecture
+        run: |
+          uname -a
+          test "$(uname -m)" = arm64
+
+      - name: Install Nix
+        uses: NixOS/nix-installer-action@62c1943b776c509394b550f3f983adc14e9212d6
+        with:
+          extra-conf: |
+            experimental-features = nix-command flakes
+            sandbox = true
+
+      - name: Record build environment
+        run: |
+          nix --version
+          nix flake metadata "$CCL_SOURCE"
+
+      - name: Build CCL
+        run: nix build -L --out-link result-ccl "$CCL_SOURCE#ccl"
+
+      - name: Test CCL startup and native compilation
+        run: |
+          ./result-ccl/bin/ccl -n -b \
+            -e '(format t "~A ~A~%" (lisp-implementation-type) (lisp-implementation-version))' \
+            -e '(assert (= 42 (funcall (compile nil (lambda (x) (+ x 1))) 41)))' \
+            -e '(ccl:quit)'
+
+      - name: Build Alexandria with CCL
+        run: nix build -L --no-link "$CCL_SOURCE#ccl.pkgs.alexandria"
